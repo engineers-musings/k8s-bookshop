@@ -42,6 +42,17 @@ Every service also exposes the switches the book uses to break things on purpose
 | `/debug/fail?pct=50` | fail that percentage of requests, interleaved — for retries |
 | `/debug/poison` | **this pod** fails everything while **still passing its readiness probe** — the pod Kubernetes will not remove and outlier detection will |
 
+## Trace propagation
+
+`internal/bookshop/bookshop.go` carries a `Propagate` helper and a `traceHeaders` list, used on every
+outbound call in `web` and `orders`. It exists because of the one thing a service mesh **cannot** do
+for you: the mesh will generate a trace ID and attach it to the request arriving at your pod, but it
+cannot reach inside your process and carry that ID from the request you *received* onto the request
+you *send*. Only your code knows those two things are related.
+
+Without it, every hop starts a fresh trace and your "distributed trace" is a pile of disconnected
+single-span stubs — which is exactly what we measured before adding it.
+
 ## Layout
 
 ```

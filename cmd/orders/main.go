@@ -53,7 +53,8 @@ func main() {
 			}
 			// Ask catalog whether the book exists. This call goes over the
 			// Service, which means over cluster DNS.
-			resp, err := client.Get(catalogURL + "/books/" + req.ISBN)
+			// Continue the caller's trace instead of starting a new one.
+			resp, err := bookshop.GetWithTrace(client, r, catalogURL+"/books/"+req.ISBN)
 			if err != nil {
 				log.Printf("orders: catalog unreachable: %v", err)
 				http.Error(w, "catalog unreachable: "+err.Error(), http.StatusBadGateway)

@@ -39,14 +39,29 @@ mesh:
 	# waypoints will silently never program.
 	$(KUBECTL) apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml
 	istioctl install --set profile=ambient --skip-confirmation
-	$(KUBECTL) apply -f manifests/istio/serviceaccounts.yaml
-	$(KUBECTL) rollout restart -n bookshop deploy/catalog deploy/orders deploy/web
-	# One label. No pod restarts. That is the whole pitch of ambient.
+	# THE ENROLLMENT. One label. Zero pod restarts -- same pod names, same start
+	# times, still one container each. Check for yourself before and after; that
+	# is the whole pitch of ambient, and a sidecar mesh cannot do it.
 	$(KUBECTL) label namespace bookshop istio.io/dataplane-mode=ambient --overwrite
 	@echo
-	@echo "The bookshop is now in the mesh. Nothing restarted. Check:"
-	@echo "  istioctl ztunnel-config workload        # PROTOCOL should be HBONE"
-	@echo "  istioctl waypoint apply -n bookshop --enroll-namespace   # opt in to L7"
+	@echo ">>> Enrolled. Nothing restarted. Verify:  istioctl ztunnel-config workload  (PROTOCOL=HBONE)"
+	@echo
+
+mesh-identity:
+	# SEPARATE TARGET, and honestly so: this one DOES restart the pods, because
+	# changing a pod's serviceAccountName is a change to the pod spec. That is a
+	# Kubernetes restart, not a mesh injection -- the mesh never touched the pods.
+	# You need it because all three services were running as `default`, so in SPIFFE
+	# terms they had the SAME identity and no identity-based policy could tell them
+	# apart. Encryption without authorization.
+	$(KUBECTL) apply -f manifests/istio/serviceaccounts.yaml
+	$(KUBECTL) patch deploy catalog -n bookshop -p '{"spec":{"template":{"spec":{"serviceAccountName":"catalog"}}}}'
+	$(KUBECTL) patch deploy orders  -n bookshop -p '{"spec":{"template":{"spec":{"serviceAccountName":"orders"}}}}'
+	$(KUBECTL) patch deploy web     -n bookshop -p '{"spec":{"template":{"spec":{"serviceAccountName":"web"}}}}'
+	@echo
+	@echo ">>> Each service now has its own SPIFFE identity. Verify:"
+	@echo "    istioctl ztunnel-config certificate --node k8s-lab-worker"
+	@echo "    istioctl waypoint apply -n bookshop --enroll-namespace   # opt in to L7"
 
 mesh-down:
 	istioctl uninstall --purge -y

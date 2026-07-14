@@ -176,3 +176,38 @@ func Serve(name string, mux *http.ServeMux) {
 
 // Poisoned reports whether this pod has been told to fail every request.
 func Poisoned() bool { return poisoned.Load() }
+
+// TRACE PROPAGATION — the one thing a service mesh cannot do for you.
+//
+// The mesh will happily generate a trace ID and attach it to the request arriving
+// at your pod. What it cannot do is reach inside this process and carry that ID
+// from the request you RECEIVED onto the request you SEND. Only your code knows
+// those two things are related.
+//
+// Without this, every hop starts a fresh trace and your "distributed trace" is a
+// pile of disconnected single-span stubs. With it, the spans link into one tree.
+var traceHeaders = []string{
+	"x-request-id",
+	"traceparent", "tracestate", // W3C
+	"x-b3-traceid", "x-b3-spanid", "x-b3-parentspanid", "x-b3-sampled", "x-b3-flags", // B3
+	"x-ot-span-context",
+}
+
+// Propagate copies the tracing headers from an inbound request onto an outbound one.
+func Propagate(in *http.Request, out *http.Request) {
+	for _, h := range traceHeaders {
+		if v := in.Header.Get(h); v != "" {
+			out.Header.Set(h, v)
+		}
+	}
+}
+
+// GetWithTrace performs an outbound GET that continues the inbound request's trace.
+func GetWithTrace(client *http.Client, in *http.Request, url string) (*http.Response, error) {
+	out, err := http.NewRequestWithContext(in.Context(), http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	Propagate(in, out)
+	return client.Do(out)
+}

@@ -56,6 +56,7 @@ func main() {
 			"KeyMasked": mask(bookshop.Env("API_KEY", "")),
 		}
 
+		get := func(url string, into any) error { return getTraced(r, url, into) }
 		var cat struct {
 			ServedBy string          `json:"servedBy"`
 			Version  string          `json:"version"`
@@ -114,8 +115,10 @@ func mask(k string) string {
 	return strings.Repeat("*", len(k)-4) + k[len(k)-4:]
 }
 
-func get(url string, into any) error {
-	resp, err := client.Get(url)
+// getTraced continues the inbound request's trace on the outbound call. Without
+// this, the mesh sees two unrelated requests and the trace breaks at this hop.
+func getTraced(in *http.Request, url string, into any) error {
+	resp, err := bookshop.GetWithTrace(client, in, url)
 	if err != nil {
 		return err
 	}
