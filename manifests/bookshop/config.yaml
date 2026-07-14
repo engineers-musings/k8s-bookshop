@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bookshop-config
+data:
+  GREETING: "The Bookshop"
+  CURRENCY: "$"
+  # Consumed as a MOUNTED FILE, not an env var — so that editing this ConfigMap
+  # changes the running banner without restarting a pod. An env var would not.
+  banner.txt: "Free shipping on orders over 30"

@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bookshop-staging
+resources:
+  - ../../bookshop
+# An overlay is a PATCH, not a copy. Anything not named here is inherited from the base.
+replicas:
+  - name: web
+    count: 1
+  - name: catalog
+    count: 1
+patches:
+  - target: {kind: Deployment, name: web}
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: "The Bookshop (STAGING)"
+  # A nodePort is a CLUSTER-WIDE singleton. The base pins 30080, so a second
+  # environment cannot reuse it — strip it and let Kubernetes allocate one.
+  - target: {kind: Service, name: web}
+    patch: |-
+      - op: remove
+        path: /spec/ports/0/nodePort

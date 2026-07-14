@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shelf-controller
+  namespace: bookshop
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: shelf-controller }
+  template:
+    metadata:
+      labels: { app: shelf-controller }
+    spec:
+      serviceAccountName: shelf-controller
+      containers:
+        - name: controller
+          # NOT registry.k8s.io/kubectl — that image is distroless and has no shell,
+          # so a shell-loop controller cannot run in it. See controller/Dockerfile.
+          image: bookshop-controller:v1
+          command: ["sh", "/src/reconcile.sh"]
+          volumeMounts:
+            - { name: src, mountPath: /src }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+      volumes:
+        - name: src
+          configMap: { name: controller-src }

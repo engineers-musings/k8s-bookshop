@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog
+  labels:
+    app: catalog
+    part-of: bookshop
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: catalog
+  template:
+    metadata:
+      labels:
+        app: catalog
+        part-of: bookshop
+    spec:
+      containers:
+        - name: catalog
+          image: bookshop:v1
+          command: ["/usr/local/bin/catalog"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # The password comes from the Secret; the rest of the DSN is not sensitive.
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bookshop-secrets
+                  key: PGPASSWORD
+            - name: DATABASE_URL
+              value: postgres://bookshop:$(PGPASSWORD)@postgres:5432/bookshop?sslmode=disable
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          # Liveness asks "is this process wedged?"; readiness asks "can it serve?".
+          # catalog's readiness fails while Postgres is unreachable — but its liveness does
+          # NOT, because restarting the container would not fix someone else's database.
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog
+spec:
+  selector:
+    app: catalog
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

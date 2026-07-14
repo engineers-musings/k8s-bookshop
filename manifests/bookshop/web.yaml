@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app: web
+    part-of: bookshop
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+        part-of: bookshop
+    spec:
+      containers:
+        - name: web
+          image: bookshop:v1
+          command: ["/usr/local/bin/web"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: bookshop-config
+            - secretRef:
+                name: bookshop-secrets
+          env:
+            - name: CATALOG_URL
+              value: http://catalog
+            - name: ORDERS_URL
+              value: http://orders
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: config
+              mountPath: /etc/bookshop
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+          lifecycle:
+            # Without this, a rolling update drops requests: the pod stops serving the
+            # moment it gets SIGTERM, while kube-proxy is still routing to it. The sleep
+            # keeps it serving until every node has removed it from the EndpointSlice.
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { memory: 128Mi }
+      volumes:
+        - name: config
+          configMap:
+            name: bookshop-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  type: NodePort
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 30080

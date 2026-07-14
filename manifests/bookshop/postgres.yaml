@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: books-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: books-schema
+data:
+  # Mounted into the image's docker-entrypoint-initdb.d, which Postgres runs
+  # exactly once — on an empty data directory. Restore the pod and it does not
+  # run again, which is precisely what makes the persistence test meaningful.
+  schema.sql: |
+    CREATE TABLE books (
+      isbn   TEXT PRIMARY KEY,
+      title  TEXT NOT NULL,
+      author TEXT NOT NULL,
+      price  NUMERIC(6,2) NOT NULL
+    );
+    INSERT INTO books (isbn, title, author, price) VALUES
+      ('978-0134494166', 'Clean Architecture', 'Robert C. Martin', 34.99),
+      ('978-1492034025', 'Designing Data-Intensive Applications', 'Martin Kleppmann', 49.99),
+      ('978-0132350884', 'Clean Code', 'Robert C. Martin', 39.99),
+      ('978-1449373320', 'Kubernetes: Up and Running', 'Kelsey Hightower', 44.99);
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+    part-of: bookshop
+spec:
+  replicas: 1
+  strategy:
+    # A ReadWriteOnce volume cannot be attached to an old and a new pod at once,
+    # and the default RollingUpdate would try exactly that.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        part-of: bookshop
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - name: pg
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: bookshop
+            - name: POSTGRES_USER
+              value: bookshop
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bookshop-secrets
+                  key: PGPASSWORD
+            # Postgres refuses to initialise into a directory that already has a
+            # lost+found in it. On many StorageClasses the mount root does, so
+            # the data lives one level down.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: schema
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "bookshop", "-d", "bookshop"]
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: books-data
+        - name: schema
+          configMap:
+            name: books-schema
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: pg

@@ -1,0 +1,14 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: k8s-lab
+nodes:
+  # Three nodes on purpose. A single-node cluster hides everything interesting about
+  # scheduling, and the taints chapter has nowhere to put a pod.
+  - role: control-plane
+    extraPortMappings:
+      # The bookshop's NodePort, mapped to localhost:30080 on your machine.
+      - containerPort: 30080
+        hostPort: 30080
+        protocol: TCP
+  - role: worker
+  - role: worker

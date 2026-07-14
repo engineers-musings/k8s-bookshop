@@ -1,0 +1,39 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: shelves.bookshop.engineers-musings.dev
+spec:
+  group: bookshop.engineers-musings.dev
+  scope: Namespaced
+  names:
+    plural: shelves
+    singular: shelf
+    kind: Shelf
+    shortNames: [sh]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [displayName, isbns]
+              properties:
+                displayName: { type: string }
+                isbns:
+                  type: array
+                  items: { type: string }
+            status:
+              type: object
+              properties:
+                bookCount: { type: integer }
+      # Without this, .status is just another field the user could write. With it,
+      # .status has its own endpoint — which is what lets the controller own it.
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - { name: Display, type: string, jsonPath: .spec.displayName }
+        - { name: Books, type: integer, jsonPath: .status.bookCount }
