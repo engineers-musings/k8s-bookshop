@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bookshop
+
+resources:
+  - crd.yaml
+  - rbac.yaml
+  - deployment.yaml
+
+# NOTE: the controller's program (controller/reconcile.sh) is NOT generated here.
+# Kustomize refuses to read files outside its own directory:
+#
+#   error: loading KV pairs: file sources: [reconcile.sh=../../controller/reconcile.sh]:
+#   security; file '.../controller/reconcile.sh' is not in or below '.../manifests/shelf-controller'
+#
+# That is a deliberate sandbox rule, not a bug. So the `controller` target in the Makefile
+# creates the `controller-src` ConfigMap from the script with `kubectl create configmap
+# --from-file`, which the Deployment then mounts. Run `make controller`, not `kubectl apply -k`
+# on its own — the Deployment will not start without that ConfigMap.

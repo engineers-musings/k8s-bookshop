@@ -1,0 +1,14 @@
+# Create this and then look at `kubectl get shelves`. The BOOKS column stays EMPTY until a
+# controller is running: the object is accepted, validated, and stored, and nothing happens.
+# A CRD without a controller is a database row with good manners.
+apiVersion: bookshop.engineers-musings.dev/v1
+kind: Shelf
+metadata:
+  name: staff-picks
+  namespace: bookshop
+spec:
+  displayName: "Staff Picks"
+  isbns:
+    - "978-0132350884"
+    - "978-1492034025"
+    - "978-1449373320"

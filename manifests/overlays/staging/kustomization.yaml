@@ -10,14 +10,26 @@ replicas:
   - name: catalog
     count: 1
 patches:
-  - target: {kind: Deployment, name: web}
+  # GREETING reaches the pod through `envFrom` (the bookshop-config ConfigMap), NOT through
+  # the container's `env:` list. So the thing to patch is the CONFIGMAP.
+  #
+  # The obvious-looking alternative is a JSON-6902 patch on
+  #     /spec/template/spec/containers/0/env/0/value
+  # and it is a trap: env[0] is CATALOG_URL. That patch does not set the greeting at all —
+  # it silently overwrites the catalog's URL, and the staging storefront then renders
+  # "catalog is unreachable". Never index `env` positionally in a base you do not control.
+  - target: { kind: ConfigMap, name: bookshop-config }
     patch: |-
-      - op: replace
-        path: /spec/template/spec/containers/0/env/0/value
-        value: "The Bookshop (STAGING)"
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: bookshop-config
+      data:
+        GREETING: "The Bookshop (STAGING)"
+
   # A nodePort is a CLUSTER-WIDE singleton. The base pins 30080, so a second
   # environment cannot reuse it — strip it and let Kubernetes allocate one.
-  - target: {kind: Service, name: web}
+  - target: { kind: Service, name: web }
     patch: |-
       - op: remove
         path: /spec/ports/0/nodePort

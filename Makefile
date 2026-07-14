@@ -1,4 +1,4 @@
-.PHONY: up build load deploy down status mesh mesh-down
+.PHONY: up cluster build load deploy status controller mesh mesh-identity mesh-down down
 KUBECTL ?= kubectl
 
 # One command, empty machine to running bookshop.
@@ -28,6 +28,27 @@ status:
 	@$(KUBECTL) get pods -n bookshop
 	@echo
 	@echo "The bookshop is at http://localhost:30080"
+
+# --- The Shelf controller (Kubernetes chapter 13: CRDs and controllers) ---
+# The official registry.k8s.io/kubectl image is DISTROLESS and has no shell, so a
+# shell-loop controller cannot run in it. This builds a tiny image that has one.
+controller:
+	docker build -t bookshop-controller:v1 controller/
+	kind load docker-image bookshop-controller:v1 --name k8s-lab
+	# The controller's whole program is this shell script, mounted as a ConfigMap.
+	# (Kustomize will not read a file outside its own directory, so this is generated
+	# here rather than by a configMapGenerator — see manifests/shelf-controller/kustomization.yaml.)
+	$(KUBECTL) create configmap controller-src -n bookshop \
+		--from-file=reconcile.sh=controller/reconcile.sh \
+		--dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(KUBECTL) apply -k manifests/shelf-controller
+	$(KUBECTL) rollout restart -n bookshop deploy/shelf-controller
+	$(KUBECTL) rollout status -n bookshop deploy/shelf-controller --timeout=180s
+	@echo
+	@echo "Now create a Shelf and watch the controller reconcile it:"
+	@echo "  kubectl apply -n bookshop -f manifests/shelf-controller/example-shelf.yaml"
+	@echo "  kubectl get shelves -n bookshop        # the BOOKS column is written by the controller"
+	@echo "  kubectl get cm shelf-staff-picks -n bookshop -o jsonpath='{.data.count}'"
 
 # --- Istio (the "Istio from Scratch" series picks up from here) ---
 # Pinned on purpose. Istio supports only TWO minor releases at a time, so a
