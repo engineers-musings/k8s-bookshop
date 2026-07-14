@@ -44,6 +44,10 @@ func main() {
 	}
 
 	mux.HandleFunc("/books", func(w http.ResponseWriter, r *http.Request) {
+		if bookshop.Poisoned() {
+			http.Error(w, "this pod is poisoned", http.StatusInternalServerError)
+			return
+		}
 		books, err := load()
 		if err != nil {
 			log.Printf("catalog: query failed: %v", err)

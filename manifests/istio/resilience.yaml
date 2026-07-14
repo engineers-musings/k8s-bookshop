@@ -1,0 +1,56 @@
+# Timeouts: an HTTPRoute whose parentRef is the SERVICE, not a Gateway. That is
+# how L7 policy attaches to east-west (mesh-internal) traffic; the waypoint enforces it.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: catalog-timeout
+  namespace: bookshop
+spec:
+  parentRefs:
+    - group: ""
+      kind: Service
+      name: catalog
+      port: 80
+  rules:
+    - timeouts:
+        request: 1s
+      backendRefs:
+        - name: catalog
+          port: 80
+---
+# Retries: Gateway API v1.4's STANDARD channel has no `retry` field --
+#   unknown field "spec.rules[0].retry"
+# so retries still mean a classic Istio VirtualService. HTTPRoute has not
+# replaced VirtualService yet.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: catalog-retry
+  namespace: bookshop
+spec:
+  hosts: ["catalog"]
+  http:
+    - retries:
+        attempts: 3
+        retryOn: "5xx"
+      route:
+        - destination:
+            host: catalog
+---
+# Outlier detection: eject a host the CALLERS think is broken, even though
+# Kubernetes thinks it is Ready. Poison one catalog pod (/debug/poison) and it
+# keeps passing its readiness probe -- Kubernetes leaves it in the Service and
+# keeps sending it a third of the traffic. The mesh routes around it.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: catalog-outlier
+  namespace: bookshop
+spec:
+  host: catalog
+  trafficPolicy:
+    outlierDetection:
+      consecutive5xxErrors: 3
+      interval: 5s
+      baseEjectionTime: 60s
+      maxEjectionPercent: 50   # the safety valve: never eject the whole fleet

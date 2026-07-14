@@ -38,6 +38,9 @@ Every service also exposes the switches the book uses to break things on purpose
 | `/debug/unready` | start failing readiness — traffic is withdrawn, the pod is **not** restarted |
 | `/debug/break` | start failing liveness — the kubelet kills and restarts the container |
 | `/debug/eat?mb=200` | allocate and **touch** 200 MB, to earn an honest `OOMKilled` against a 128Mi limit |
+| `/debug/slow?ms=3000` | sleep, so a mesh timeout has something to time out |
+| `/debug/fail?pct=50` | fail that percentage of requests, interleaved — for retries |
+| `/debug/poison` | **this pod** fails everything while **still passing its readiness probe** — the pod Kubernetes will not remove and outlier detection will |
 
 ## Layout
 
@@ -46,8 +49,25 @@ cluster/kind.yaml               3 nodes, with :30080 mapped to your machine
 Dockerfile                      multi-stage Go build; one image, three binaries
 manifests/bookshop/             the app: config, catalog, orders, web, postgres
 manifests/overlays/staging/     a Kustomize overlay (chapter 14)
-manifests/shelf-controller/     a CRD + RBAC + a controller (chapter 13)
+manifests/shelf-controller/     a CRD + RBAC + a controller (Kubernetes chapter 13)
+manifests/istio/                the mesh: ServiceAccounts, L4/L7 policy, gateway, resilience
 controller/                     alpine + kubectl — the controller's image and its reconcile loop
+```
+
+## The mesh
+
+The **[Istio from Scratch](https://engineers-musings.dev/blog/series/istio-foundations/)** series
+picks up from this exact cluster. Once the bookshop is running:
+
+```bash
+make mesh
+```
+
+That installs Gateway API, installs Istio's **ambient** profile, gives each service its own
+ServiceAccount, and enrolls the namespace — **without restarting a single application pod**.
+
+```
+make down   # delete the whole cluster
 ```
 
 ## Versions

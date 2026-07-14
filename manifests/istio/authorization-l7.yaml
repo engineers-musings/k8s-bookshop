@@ -1,0 +1,31 @@
+# L7 policy — enforced by the WAYPOINT (an Envoy). Methods, paths, headers.
+# A denial here is a real HTTP 403.
+#
+# WARNING, and it is the whole point of the authorization chapter: if there is NO
+# waypoint bound to this Service, this policy is not a stricter policy — it is an
+# UNENFORCED one. DELETE and POST will return 200. It fails open.
+#
+# It does leave evidence, in two places you have to know to look:
+#   kubectl get authorizationpolicy catalog-l7 -o jsonpath='{.status}'
+#     -> WaypointAccepted=False, reason=AncestorNotBound
+#   istioctl analyze
+#     -> Warning [IST0171] ... not bound to a waypoint
+# `kubectl get authorizationpolicy` shows only NAME/ACTION/AGE, and looks fine.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: catalog-l7
+  namespace: bookshop
+spec:
+  targetRefs:               # service-scoped: the modern ambient binding, for L7
+    - kind: Service
+      group: ""
+      name: catalog
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/bookshop/sa/orders"]
+      to:
+        - operation:
+            methods: ["GET"]

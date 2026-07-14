@@ -5,11 +5,13 @@ package bookshop
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"sync/atomic"
+	"time"
 )
 
 // Version is stamped at build time with -ldflags "-X ...Version=v2".
@@ -66,6 +68,43 @@ func (h *Health) Handle(mux *http.ServeMux, name string) {
 		}
 		w.Write([]byte("ready\n"))
 	})
+	// Be slow on purpose. The mesh's timeout and retry chapters need an upstream
+	// that takes longer than the caller is willing to wait.
+	mux.HandleFunc("/debug/slow", func(w http.ResponseWriter, r *http.Request) {
+		ms, _ := strconv.Atoi(r.URL.Query().Get("ms"))
+		if ms <= 0 {
+			ms = 2000
+		}
+		time.Sleep(time.Duration(ms) * time.Millisecond)
+		fmt.Fprintf(w, "slept %dms (pod=%s)\n", ms, Env("POD_NAME", "?"))
+	})
+
+	// Fail a fixed percentage of requests, so outlier detection and retries have
+	// something real to react to. /debug/fail?pct=50
+	mux.HandleFunc("/debug/fail", func(w http.ResponseWriter, r *http.Request) {
+		pct, _ := strconv.Atoi(r.URL.Query().Get("pct"))
+		if pct <= 0 {
+			pct = 100
+		}
+		// 61 is coprime with 100, so this walks the whole 0-99 range and INTERLEAVES
+		// failures with successes. A plain n%100 would fail the first `pct` requests
+		// in one run and then succeed forever, which demonstrates nothing.
+		if int(reqN.Add(1)*61)%100 < pct {
+			http.Error(w, "induced failure", http.StatusInternalServerError)
+			return
+		}
+		fmt.Fprintf(w, "ok (pod=%s)\n", Env("POD_NAME", "?"))
+	})
+
+	// Poison THIS pod only: every subsequent request to it returns 500, and it keeps
+	// passing its readiness probe so Kubernetes will not take it out of the Service.
+	// That is exactly the pod a mesh's outlier detection is supposed to eject.
+	mux.HandleFunc("/debug/poison", func(w http.ResponseWriter, r *http.Request) {
+		poisoned.Store(true)
+		log.Printf("%s: POISONED — this pod now fails every request but stays Ready", name)
+		w.Write([]byte("poisoned\n"))
+	})
+
 	mux.HandleFunc("/debug/unready", func(w http.ResponseWriter, r *http.Request) {
 		h.ready.Store(false)
 		log.Printf("%s: readiness flipped to NOT READY", name)
@@ -98,6 +137,14 @@ func (h *Health) Handle(mux *http.ServeMux, name string) {
 
 var hog [][]byte
 
+// reqN counts requests to /debug/fail, so the failure rate is deterministic
+// rather than random — a flaky test is nobody's idea of a teaching aid.
+var reqN atomic.Int64
+
+// poisoned makes one specific pod fail everything while staying Ready — the
+// scenario outlier detection exists for.
+var poisoned atomic.Bool
+
 // Env reads a variable with a fallback, which is the entire configuration story
 // until the ConfigMap chapter makes it interesting.
 func Env(key, fallback string) string {
@@ -126,3 +173,6 @@ func Serve(name string, mux *http.ServeMux) {
 		log.Fatal(err)
 	}
 }
+
+// Poisoned reports whether this pod has been told to fail every request.
+func Poisoned() bool { return poisoned.Load() }

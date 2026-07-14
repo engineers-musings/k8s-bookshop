@@ -1,0 +1,17 @@
+# L4 policy — enforced by ZTUNNEL, on the node. Identity and ports only.
+# A denial here is a CONNECTION RESET (curl exit 56), not an HTTP 403:
+# ztunnel does not speak HTTP, so it cannot send you a status code.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: catalog-l4
+  namespace: bookshop
+spec:
+  selector:                 # workload-scoped: this is the L4 binding
+    matchLabels:
+      app: catalog
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/bookshop/sa/orders"]
